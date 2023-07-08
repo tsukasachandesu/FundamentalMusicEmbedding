@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 
 class Fundamental_Music_Embedding(nn.Module):
-	def __init__(self, d_model, base, device='cpu', type = "se"):
+	def __init__(self, d_model, base, device='cpu'):
 		super().__init__()
 		self.d_model = d_model
 		self.device = device
@@ -22,38 +22,12 @@ class Fundamental_Music_Embedding(nn.Module):
 		angle_rates = angle_rates[None, ... ].to(self.device)
 		angles = nn.Parameter(angle_rates, requires_grad=True)
 		self.register_parameter("angles", angles)
-		
-		
-
-	def transform_by_delta_pos_v1(self, inp, delta_pos):
-		#outdated version, use block diagonal matrix very inefficient
-		if inp.dim()==3:
-			batch, length = int(inp.shape[0]), int(inp.shape[1])
-		elif inp.dim()==1:
-			batch, length = 1, int(inp.shape[0])
-
-		raw = self.FMS(delta_pos)
-		
-		wk_phi_1 = torch.reshape(raw,[batch, length,int(self.d_model/2), 2]) #[d_mod/2, 2] -->batch, len, d_mod/2, 2
-		wk_phi_1_rev=wk_phi_1*torch.tensor([-1., 1.]).to(self.device)[None, None, None, ...] # (batch, len, d_mod/2, 2) * (1, 1, 1, 2)
-		wk_phi_2 = torch.flip(wk_phi_1, dims = [-1]) ##[d_mod/2, 2] --># (batch, len, d_mod/2, 2)
-	
-		wk_phi1_2 = torch.cat((wk_phi_2, wk_phi_1_rev), axis = -1) #[dmod/2, 4] # (batch, len, d_mod/2, 4)
-		wk_phi1_2_rehsaped = torch.reshape(wk_phi1_2, [batch*length*int(self.d_model/2), 2, 2]) #[dmod/2, 2, 2] --># (batch, len, d_mod/2, 2, 2) we want -->1*3*4*4
-
-		transformation_matrix = torch.block_diag(*wk_phi1_2_rehsaped)
-		out = torch.matmul(transformation_matrix, torch.reshape(inp, (batch*length*self.d_model, 1)))[:,0]
-		out = torch.reshape(out, (length, self.d_model))
-		return out
 
 	def transform_by_delta_pos_v2(self, inp, delta_pos):
 		#fast version, no need to use block diagonal matrix
 		#transpose one token to another in the embedding space
-		if inp.dim()==3:
-			batch, length = int(inp.shape[0]), int(inp.shape[1])
-		elif inp.dim()==1:
-			batch, length = 1, int(inp.shape[0])
-
+		
+		batch, length = int(inp.shape[0]), int(inp.shape[1])
 		raw = self.FMS(delta_pos)
 		wk_phi_1 = torch.reshape(raw,[batch*length*int(self.d_model/2), 2]) #[d_mod/2, 2] -->batch* len* d_mod/2, 2
 		wk_phi_1_rev=wk_phi_1*torch.tensor([-1., 1.]).to(self.device)[None, ...] # (batch*len*d_mod/2, 2) * (1, 2)
@@ -63,24 +37,18 @@ class Fundamental_Music_Embedding(nn.Module):
 		wk_phi1_2_rehsaped = torch.reshape(wk_phi1_2, [batch*length*int(self.d_model/2), 2, 2]) #[dmod/2, 2, 2] --># (batch* len*d_mod/2, 2, 2) we want -->1*3*4*4
 		transformation_matrix = wk_phi1_2_rehsaped 
 		
-		if self.translation_bias is not None:
-			inp -= self.translation_bias[:, None, :]
+		inp -= self.translation_bias[:, None, :]
 
 		reshaped = torch.reshape(inp, (batch*length*int(self.d_model/2), 2,1))
 		out = torch.matmul(transformation_matrix, 
 							reshaped) #(batch* len*d_mod/2, 2, 2) * (batch*len*d_mod, 1, 2)
 
 		out = torch.reshape(out, (batch, length, self.d_model))
-		if self.translation_bias is not None:
-			out += self.translation_bias[:, None, :]
+		out += self.translation_bias[:, None, :]
 		return out
 
-
 	def __call__(self, inp):
-		if inp.dim()==2:
-			inp = inp[..., None] #pos (batch, num_pitch, 1)
-		elif inp.dim()==1:
-			inp = inp[None, ..., None] #pos (1, num_pitch, 1)
+		inp = inp[..., None] #pos (batch, num_pitch, 1)
 		angle_rads = inp*self.angles #(batch, num_pitch)*(1,dim)
 
 		# apply sin to even indices in the array; 2i
@@ -90,14 +58,11 @@ class Fundamental_Music_Embedding(nn.Module):
 		angle_rads[:, :, 1::2] = torch.cos(angle_rads.clone()[:, :, 1::2])
 
 		pos_encoding = angle_rads.to(torch.float32)
-		if self.if_translation_bias:
-			if self.translation_bias.size()[-1]!= self.d_model:
-				translation_bias = self.translation_bias.repeat(1, 1,int(self.d_model/2))
-			else:
-				translation_bias = self.translation_bias
-			pos_encoding += translation_bias
-		else:
-			self.translation_bias = None
+
+		translation_bias = self.translation_bias.repeat(1, 1,int(self.d_model/2))
+
+		pos_encoding += translation_bias
+
 		return pos_encoding
 	
 	def FMS(self, delta_pos):
