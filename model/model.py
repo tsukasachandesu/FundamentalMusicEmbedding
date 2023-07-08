@@ -59,31 +59,14 @@ class RIPO_transformer(nn.Module):
 		self.pitch_embedding_conf = pitch_embedding_conf
 		self.dur_embedding_conf = dur_embedding_conf
 
-		if self.pitch_embedding_conf['type']=="nn":
-			print("end2end trainable embedding for pitch")
-			self.pitch_embedding = nn.Embedding(pitch_dim,d_model) #pending change for rest and sustain! #changed from embsize to d model
-		elif self.pitch_embedding_conf['type']=="se":
-			print("FME for pitch")
-			self.pitch_embedding = Fundamental_Music_Embedding(**pitch_embedding_conf) 
-			self.pitch_embedding_supplement = nn.Embedding(3,d_model) #pad:0, rest:1, sustain:2
-			self.relative_pitch_embedding_supplement = nn.Embedding(1,d_model) #hosting non-quantifiable relative pitch (to pad, rest, sustain)
-			self.pitch_senn = nn.Linear(d_model, d_model)
-		elif self.pitch_embedding_conf['type']=="nn_pretrain":
-			print("end2end trainable embedding (pretrained) for pitch")
-			self.pitch_embedding = nn.Embedding.from_pretrained(torch.from_numpy(np.load(self.pitch_embedding_conf['pretrain_emb_path'])), freeze = self.pitch_embedding_conf['freeze_pretrain'])
+		self.pitch_embedding = Fundamental_Music_Embedding(**pitch_embedding_conf) 
+		self.pitch_embedding_supplement = nn.Embedding(3,d_model) #pad:0, rest:1, sustain:2
+		self.relative_pitch_embedding_supplement = nn.Embedding(1,d_model) #hosting non-quantifiable relative pitch (to pad, rest, sustain)
+		self.pitch_senn = nn.Linear(d_model, d_model)
 		
-		if self.dur_embedding_conf['type']=="nn":
-			print("end2end trainable embedding for duration")
-			self.dur_embedding = nn.Embedding(dur_dim, d_model)
-		elif self.dur_embedding_conf['type']=="se":
-			print("FME for duration")
-			self.dur_embedding = Fundamental_Music_Embedding(**dur_embedding_conf) 
-			self.dur_embedding_supplement = nn.Embedding(1,d_model) #pad:0
-			self.dur_senn = nn.Linear(d_model, d_model)
-
-		elif self.dur_embedding_conf['type']=="nn_pretrain":
-			print("end2end trainable embedding (pretrained) for duration")
-			self.dur_embedding = nn.Embedding.from_pretrained(torch.from_numpy(np.load(self.dur_embedding_conf['pretrain_emb_path'])), freeze = self.dur_embedding_conf['freeze_pretrain'])
+		self.dur_embedding = Fundamental_Music_Embedding(**dur_embedding_conf) 
+		self.dur_embedding_supplement = nn.Embedding(1,d_model) #pad:0
+		self.dur_senn = nn.Linear(d_model, d_model)
 		
 		self.pitch_ffn = nn.Linear(d_model, pitch_dim)
 		self.dur_ffn = nn.Linear(d_model, dur_dim)
@@ -94,21 +77,11 @@ class RIPO_transformer(nn.Module):
 
 	def init_weights(self) -> None:
 		initrange = 0.1
-		# self.encoder.weight.data.uniform_(-initrange, initrange)
-		if self.pitch_embedding_conf['type']=="nn":
-			self.pitch_embedding.weight.data.uniform_(-initrange, initrange)
-		elif self.pitch_embedding_conf['type']=="se":
-			self.pitch_embedding_supplement.weight.data.uniform_(-initrange, initrange)
-			self.relative_pitch_embedding_supplement.weight.data.uniform_(-initrange, initrange)
 
-		
-		if self.dur_embedding_conf['type']=="nn":
-			self.dur_embedding.weight.data.uniform_(-initrange, initrange)
-		elif self.dur_embedding_conf['type']=="se":
-			self.dur_embedding_supplement.weight.data.uniform_(-initrange, initrange)
+		self.pitch_embedding_supplement.weight.data.uniform_(-initrange, initrange)
+		self.relative_pitch_embedding_supplement.weight.data.uniform_(-initrange, initrange)
 
-		# self.decoder.bias.data.zero_()
-		# self.decoder.weight.data.uniform_(-initrange, initrange)
+		self.dur_embedding_supplement.weight.data.uniform_(-initrange, initrange)
 
 		self.pitch_ffn.bias.data.zero_()
 		self.pitch_ffn.weight.data.uniform_(-initrange, initrange)	
@@ -143,56 +116,32 @@ class RIPO_transformer(nn.Module):
 		pad_mask = self.get_mask(pitch, "pad")
 
 		#emb pitch and dur 
-		if self.pitch_embedding_conf['type']=="nn":
-			pitch_enc = self.pitch_embedding(pitch) #batch, len, emb_dim
-			pitch_rel_enc = None
-
-		elif self.pitch_embedding_conf['type']=="se":
 			#when token is 012 use supplement embedding 
 			# pitch_enc = torch.where( (pitch==0) | (pitch==1) | (pitch==2), self.pitch_embedding_supplement(pitch), self.pitch_embedding(pitch))
-			pitch_sup= torch.where( (pitch==0) | (pitch==1) | (pitch==2), pitch, 0)
+		pitch_sup= torch.where( (pitch==0) | (pitch==1) | (pitch==2), pitch, 0)
 
-			pitch_sup_emb = self.pitch_embedding_supplement(pitch_sup)
-			pitch_norm_emb = self.pitch_embedding(pitch)
+		pitch_sup_emb = self.pitch_embedding_supplement(pitch_sup)
+		pitch_norm_emb = self.pitch_embedding(pitch)
 
-			pitch = pitch[...,None]
-			pitch_enc = torch.where((pitch==0) | (pitch==1) | (pitch==2), pitch_sup_emb, pitch_norm_emb)
+		pitch = pitch[...,None]
+		pitch_enc = torch.where((pitch==0) | (pitch==1) | (pitch==2), pitch_sup_emb, pitch_norm_emb)
 			
-			pitch_rel_enc = self.pitch_embedding.FMS(pitch_rel) #batch, len,len, dim
-			rel_pitch_sup_emb = self.relative_pitch_embedding_supplement(torch.tensor(0).to(self.device))[None, None, None, :]
-			pitch_rel_enc = torch.where(pitch_rel_mask[..., None], rel_pitch_sup_emb, pitch_rel_enc)
-		
-			if self.pitch_embedding_conf['emb_nn']==True:
-				pitch_rel_enc = self.pitch_senn(pitch_rel_enc)
+		pitch_rel_enc = self.pitch_embedding.FMS(pitch_rel) #batch, len,len, dim
+		rel_pitch_sup_emb = self.relative_pitch_embedding_supplement(torch.tensor(0).to(self.device))[None, None, None, :]
+		pitch_rel_enc = torch.where(pitch_rel_mask[..., None], rel_pitch_sup_emb, pitch_rel_enc)
+				
+		pitch_rel_enc = self.pitch_senn(pitch_rel_enc)
 
-		elif self.pitch_embedding_conf['type']=="one_hot":
-			pitch_enc = F.one_hot(pitch, num_classes = self.d_model).to(torch.float32) #batch, len, emb_dim
-			pitch_rel_enc = None
-
-		elif self.pitch_embedding_conf['type']=="nn_pretrain":
-			pitch_enc = self.pitch_embedding(pitch) #batch, len, emb_dim
-			pitch_rel_enc = None
-		
-		if self.dur_embedding_conf['type']=="nn":
-			dur_enc = self.dur_embedding(dur) #batch, len, emb_dim
-			dur_rel_enc = None
-		elif self.dur_embedding_conf['type']=="se":
 			#when token is 012 use supplement embedding 
 			# dur_enc = torch.where(dur==0, self.dur_embedding_supplement(dur), self.dur_embedding(dur))
-			dur_sup = torch.where(dur==0, dur, 0)
-			dur_sup_emb = self.dur_embedding_supplement(dur_sup)
-			dur_norm_emb = self.dur_embedding(dur)
-			dur = dur[..., None]
-			dur_enc = torch.where(dur==0, dur_sup_emb, dur_norm_emb)
-			dur_rel_enc = self.dur_embedding.FMS(dur_rel)
-			if self.dur_embedding_conf['emb_nn']==True:
-				dur_rel_enc = self.dur_senn(dur_rel_enc)
-		elif self.dur_embedding_conf['type']=="one_hot":
-			dur_enc = F.one_hot(dur, num_classes = self.d_model).to(torch.float32) #batch, len, emb_dim
-			dur_rel_enc = None
-		if self.dur_embedding_conf['type']=="nn_pretrain":
-			dur_enc = self.dur_embedding(dur) #batch, len, emb_dim
-			dur_rel_enc = None
+		dur_sup = torch.where(dur==0, dur, 0)
+		dur_sup_emb = self.dur_embedding_supplement(dur_sup)
+		dur_norm_emb = self.dur_embedding(dur)
+		dur = dur[..., None]
+		dur_enc = torch.where(dur==0, dur_sup_emb, dur_norm_emb)
+		dur_rel_enc = self.dur_embedding.FMS(dur_rel)
+
+		dur_rel_enc = self.dur_senn(dur_rel_enc)
 		
 		fused_music_info = self.fusion_layer(pitch_enc, dur_enc)#should include adj as well? pending change
 		fused_music_info = fused_music_info * math.sqrt(self.d_model)
