@@ -114,7 +114,6 @@ class Music_PositionalEncoding(nn.Module):
 		super().__init__()
 
 		self.dropout = nn.Dropout(p=dropout)
-		self.index_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10000, device = device,).cuda()
 		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
 		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
 
@@ -139,28 +138,3 @@ class Music_PositionalEncoding(nn.Module):
 		modulo_timing_embedding = self.modulo_time_embedding(modulo_timing)
 		inp += modulo_timing_embedding
 		return self.dropout(inp)
-	
-class PositionalEncoding(nn.Module):
-
-	def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-		super().__init__()
-		self.dropout = nn.Dropout(p=dropout)
-
-		position = torch.arange(max_len).unsqueeze(1)
-		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-		pe = torch.zeros(max_len, 1, d_model)
-		pe[:, 0, 0::2] = torch.sin(position * div_term)
-		pe[:, 0, 1::2] = torch.cos(position * div_term)
-		self.register_buffer('pe', pe)
-
-	def forward(self, x):
-		pos = self.pe[:x.size(1)] #[seq_len, batch_size, embedding_dim]
-		pos = torch.swapaxes(pos, 0, 1) #[batch_size, seq_len, embedding_dim]
-		x = x + pos
-		return self.dropout(x)
-
-def l2_norm(a, b):
-	return torch.linalg.norm(a-b,  ord = 2, dim = -1)
-
-def rounding(x):
-	return x-torch.sin(2.*math.pi*x)/(2.*math.pi)
