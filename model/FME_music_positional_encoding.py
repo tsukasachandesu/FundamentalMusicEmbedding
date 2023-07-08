@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 
 class Fundamental_Music_Embedding(nn.Module):
-	def __init__(self, d_model, base, device='cpu', type = "se",emb_nn=None):
+	def __init__(self, d_model, base, device='cpu', type = "se"):
 		super().__init__()
 		self.d_model = d_model
 		self.device = device
