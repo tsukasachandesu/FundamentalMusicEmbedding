@@ -59,10 +59,12 @@ class Fundamental_Music_Embedding(nn.Module):
 
 		pos_encoding = angle_rads.to(torch.float32)
 
-		translation_bias = self.translation_bias.repeat(1, 1,int(self.d_model/2))
-
+		if self.translation_bias.size()[-1]!= self.d_model:
+			translation_bias = self.translation_bias.repeat(1, 1,int(self.d_model/2))
+		else:
+			translation_bias = self.translation_bias
 		pos_encoding += translation_bias
-
+		
 		return pos_encoding
 	
 	def FMS(self, delta_pos):
@@ -85,8 +87,7 @@ class Fundamental_Music_Embedding(nn.Module):
 		return raw.to(torch.float32).to(self.device)
 
 	def decode(self, embedded):
-		if self.translation_bias is not None:
-			embedded -= self.translation_bias[:, None, :]
+		embedded -= self.translation_bias[:, None, :]
 
 		decoded_dim = (torch.asin(embedded)/self.angles[:, None, :]).to(torch.float32)
 		if self.d_model/2 %2 == 0:
@@ -109,15 +110,13 @@ class Fundamental_Music_Embedding(nn.Module):
 
 class Music_PositionalEncoding(nn.Module):
 
-	def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000, if_index = True, if_global_timing = True, if_modulo_timing = True, device = 'cuda:0'):
+	def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000, device = 'cuda:0'):
 		super().__init__()
-		self.if_index = if_index
-		self.if_global_timing = if_global_timing
-		self.if_modulo_timing = if_modulo_timing
+
 		self.dropout = nn.Dropout(p=dropout)
-		self.index_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10000, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
-		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
-		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device, if_trainable=False, translation_bias_type = None, if_translation_bias_trainable = False, type = "se").cuda()
+		self.index_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10000, device = device,).cuda()
+		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
+		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
 
 		position = torch.arange(max_len).unsqueeze(1)
 		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
@@ -125,28 +124,20 @@ class Music_PositionalEncoding(nn.Module):
 		pe[:, 0, 0::2] = torch.sin(position * div_term)
 		pe[:, 0, 1::2] = torch.cos(position * div_term)
 		self.register_buffer('pe', pe)
-		if self.if_global_timing:
-			print("pe add global time")
-		if self.if_modulo_timing:
-			print("pe add modulo time")
-		if self.if_index:
-			print("pe add idx")
-	def forward(self, inp,dur_onset_cumsum = None):
+	
+	def forward(self, inp,　dur_onset_cumsum = None):
 
-		if self.if_index:
-			pe_index = self.pe[:inp.size(1)] #[seq_len, batch_size, embedding_dim]
-			pe_index = torch.swapaxes(pe_index, 0, 1) #[batch_size, seq_len, embedding_dim]
-			inp += pe_index
+		pe_index = self.pe[:inp.size(1)] #[seq_len, batch_size, embedding_dim]
+		pe_index = torch.swapaxes(pe_index, 0, 1) #[batch_size, seq_len, embedding_dim]
+		inp += pe_index
 		
-		if self.if_global_timing:
-			global_timing = dur_onset_cumsum
-			global_timing_embedding = self.global_time_embedding(global_timing)
-			inp += global_timing_embedding
+		global_timing = dur_onset_cumsum
+		global_timing_embedding = self.global_time_embedding(global_timing)
+		inp += global_timing_embedding
 		
-		if self.if_modulo_timing:
-			modulo_timing = dur_onset_cumsum%4
-			modulo_timing_embedding = self.modulo_time_embedding(modulo_timing)
-			inp += modulo_timing_embedding
+		modulo_timing = dur_onset_cumsum % 16
+		modulo_timing_embedding = self.modulo_time_embedding(modulo_timing)
+		inp += modulo_timing_embedding
 		return self.dropout(inp)
 	
 class PositionalEncoding(nn.Module):
