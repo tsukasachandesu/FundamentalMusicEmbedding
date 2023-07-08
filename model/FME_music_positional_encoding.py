@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import math
 import matplotlib.pyplot as plt
 
-
 class Fundamental_Music_Embedding(nn.Module):
 	def __init__(self, d_model, base, device='cuda:0'):
 		super().__init__()
@@ -51,8 +50,7 @@ class Music_PositionalEncoding(nn.Module):
 
 		self.dropout = nn.Dropout(p=dropout)
 		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device)
-		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device)
-
+		
 		position = torch.arange(max_len).unsqueeze(1)
 		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
 		pe = torch.zeros(max_len, 1, d_model)
