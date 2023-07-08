@@ -23,30 +23,6 @@ class Fundamental_Music_Embedding(nn.Module):
 		angles = nn.Parameter(angle_rates, requires_grad=True)
 		self.register_parameter("angles", angles)
 
-	def transform_by_delta_pos_v2(self, inp, delta_pos):
-		#fast version, no need to use block diagonal matrix
-		#transpose one token to another in the embedding space
-		
-		batch, length = int(inp.shape[0]), int(inp.shape[1])
-		raw = self.FMS(delta_pos)
-		wk_phi_1 = torch.reshape(raw,[batch*length*int(self.d_model/2), 2]) #[d_mod/2, 2] -->batch* len* d_mod/2, 2
-		wk_phi_1_rev=wk_phi_1*torch.tensor([-1., 1.]).to(self.device)[None, ...] # (batch*len*d_mod/2, 2) * (1, 2)
-		wk_phi_2 = torch.flip(wk_phi_1, dims = [-1]) ##[d_mod/2, 2] --># (batch*len*d_mod/2, 2)
-	
-		wk_phi1_2 = torch.cat((wk_phi_2, wk_phi_1_rev), axis = -1) #[dmod/2, 4] # (batch* len* d_mod/2, 4)
-		wk_phi1_2_rehsaped = torch.reshape(wk_phi1_2, [batch*length*int(self.d_model/2), 2, 2]) #[dmod/2, 2, 2] --># (batch* len*d_mod/2, 2, 2) we want -->1*3*4*4
-		transformation_matrix = wk_phi1_2_rehsaped 
-		
-		inp -= self.translation_bias[:, None, :]
-
-		reshaped = torch.reshape(inp, (batch*length*int(self.d_model/2), 2,1))
-		out = torch.matmul(transformation_matrix, 
-							reshaped) #(batch* len*d_mod/2, 2, 2) * (batch*len*d_mod, 1, 2)
-
-		out = torch.reshape(out, (batch, length, self.d_model))
-		out += self.translation_bias[:, None, :]
-		return out
-
 	def __call__(self, inp):
 		inp = inp[..., None] #pos (batch, num_pitch, 1)
 		angle_rads = inp*self.angles #(batch, num_pitch)*(1,dim)
@@ -67,46 +43,6 @@ class Fundamental_Music_Embedding(nn.Module):
 		
 		return pos_encoding
 	
-	def FMS(self, delta_pos):
-		if delta_pos.dim()==1:
-			delta_pos = delta_pos[None, ..., None] # len ==> batch, len
-		if delta_pos.dim()==2:
-			delta_pos = delta_pos[ ..., None] # batch, len ==> batch, len, 1
-		if delta_pos.dim()==3:
-			b_size = delta_pos.shape[0]
-			len_q = delta_pos.shape[1]
-			len_k = delta_pos.shape[2]
-			delta_pos = delta_pos.reshape((b_size, len_q*len_k, 1))# batch, len, len ==> batch, len*len, 1
-		
-		raw = delta_pos*self.angles
-		raw[:, :, 0::2] = torch.sin(raw.clone()[:, :, 0::2])
-		raw[:,:,1::2] = torch.cos(raw.clone()[:,:,1::2])
-
-		if delta_pos.dim()==3:
-			raw = raw.reshape((b_size, len_q, len_k, -1))# batch, len, len ==> batch, len*len, 1
-		return raw.to(torch.float32).to(self.device)
-
-	def decode(self, embedded):
-		embedded -= self.translation_bias[:, None, :]
-
-		decoded_dim = (torch.asin(embedded)/self.angles[:, None, :]).to(torch.float32)
-		if self.d_model/2 %2 == 0:
-			decoded = decoded_dim[:, :, int(self.d_model/2)]
-
-		elif self.d_model/2 %2 == 1:	
-			decoded = decoded_dim[:, :, int(self.d_model/2+1)]
-
-		return decoded 
-
-	def decode_tps(self, embedded):
-		decoded_dim = (torch.asin(embedded)/self.angles[:, None,None, :]).to(torch.float32)
-		if self.d_model/2 %2 == 0:
-			decoded = decoded_dim[:, :, :, int(self.d_model/2)]
-
-		elif self.d_model/2 %2 == 1:	
-			decoded = decoded_dim[:, :, :, int(self.d_model/2+1)]
-
-		return decoded 
 
 class Music_PositionalEncoding(nn.Module):
 
