@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 
 class Fundamental_Music_Embedding(nn.Module):
-	def __init__(self, d_model, base, device='cpu'):
+	def __init__(self, d_model, base, device='cuda:0'):
 		super().__init__()
 		self.d_model = d_model
 		self.device = device
@@ -50,8 +50,8 @@ class Music_PositionalEncoding(nn.Module):
 		super().__init__()
 
 		self.dropout = nn.Dropout(p=dropout)
-		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
-		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device).cuda()
+		self.global_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device)
+		self.modulo_time_embedding = Fundamental_Music_Embedding(d_model = d_model, base=10001, device = device)
 
 		position = torch.arange(max_len).unsqueeze(1)
 		div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
@@ -70,7 +70,4 @@ class Music_PositionalEncoding(nn.Module):
 		global_timing_embedding = self.global_time_embedding(global_timing)
 		inp += global_timing_embedding
 		
-		modulo_timing = dur_onset_cumsum % 16
-		modulo_timing_embedding = self.modulo_time_embedding(modulo_timing)
-		inp += modulo_timing_embedding
 		return self.dropout(inp)
