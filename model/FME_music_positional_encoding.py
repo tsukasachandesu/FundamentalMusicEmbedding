@@ -7,35 +7,23 @@ import matplotlib.pyplot as plt
 
 
 class Fundamental_Music_Embedding(nn.Module):
-	def __init__(self, d_model, base, if_trainable = False, if_translation_bias_trainable = True, device='cpu', type = "se",emb_nn=None,translation_bias_type = "nd"):
+	def __init__(self, d_model, base, device='cpu', type = "se",emb_nn=None):
 		super().__init__()
 		self.d_model = d_model
 		self.device = device
 		self.base = base
-		self.if_trainable = if_trainable #whether the se is trainable 
 		
-		if translation_bias_type is not None:
-			self.if_translation_bias = True
-			self.if_translation_bias_trainable = if_translation_bias_trainable #default the 2d vector is trainable
-			if translation_bias_type=="2d":
-				translation_bias = torch.rand((1, 2), dtype = torch.float32) #Returns a tensor filled with random numbers from a uniform distribution on the interval [0, 1)[0,1)
-			elif translation_bias_type=="nd":
-				translation_bias = torch.rand((1, self.d_model), dtype = torch.float32)
-			translation_bias = nn.Parameter(translation_bias, requires_grad=True)
-			self.register_parameter("translation_bias", translation_bias)
-		else:
-			self.if_translation_bias = False
+		translation_bias = torch.rand((1, self.d_model), dtype = torch.float32)
+		translation_bias = nn.Parameter(translation_bias, requires_grad=True)
+		self.register_parameter("translation_bias", translation_bias)
 
 		i = torch.arange(d_model)
 		angle_rates = 1 / torch.pow(self.base, (2 * (i//2)) / d_model)
 		angle_rates = angle_rates[None, ... ].to(self.device)
-
-		if self.if_trainable:
-			angles = nn.Parameter(angle_rates, requires_grad=True)
-			self.register_parameter("angles", angles)
+		angles = nn.Parameter(angle_rates, requires_grad=True)
+		self.register_parameter("angles", angles)
 		
-		else:
-			self.angles = angle_rates
+		
 
 	def transform_by_delta_pos_v1(self, inp, delta_pos):
 		#outdated version, use block diagonal matrix very inefficient
